@@ -184,6 +184,8 @@ export interface VerusAuthConfig {
   chainIAddress?: string;
   /** Public URL where the wallet will POST the response (e.g. "https://yoursite.com/auth/verus/verusidlogin") */
   callbackUrl: string;
+  /** URL to redirect mobile users back to after signing (e.g. "https://yoursite.com/login"). When set, Verus Mobile will auto-return to this URL after POSTing the signed response. */
+  redirectUrl?: string;
   /** Challenge TTL in ms (default: 300000 = 5 min) */
   challengeTtl?: number;
   /** Called when a login is verified — use this to create sessions, JWTs, etc. */

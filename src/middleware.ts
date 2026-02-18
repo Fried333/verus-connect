@@ -115,14 +115,21 @@ export function verusAuth(config: VerusAuthConfig) {
       const challengeId = randomIAddress();
       const webhookKey = primitives.LOGIN_CONSENT_WEBHOOK_VDXF_KEY.vdxfid;
 
+      // Build redirect URIs — always include webhook, optionally add browser redirect
+      const redirectUris = [
+        new primitives.RedirectUri(config.callbackUrl, webhookKey),
+      ];
+      if (config.redirectUrl) {
+        const redirectKey = primitives.LOGIN_CONSENT_REDIRECT_VDXF_KEY.vdxfid;
+        redirectUris.push(new primitives.RedirectUri(config.redirectUrl, redirectKey));
+      }
+
       const challenge = new primitives.LoginConsentChallenge({
         challenge_id: challengeId,
         requested_access: [
           new primitives.RequestedPermission(primitives.IDENTITY_VIEW.vdxfid),
         ],
-        redirect_uris: [
-          new primitives.RedirectUri(config.callbackUrl, webhookKey),
-        ],
+        redirect_uris: redirectUris,
         subject: [],
         provisioning_info: [],
         created_at: Number((Date.now() / 1000).toFixed(0)),

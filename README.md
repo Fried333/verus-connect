@@ -143,6 +143,7 @@ verusAuth({
   apiUrl: 'https://api.verus.services',       // Verus API endpoint
   chainIAddress: 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV', // Chain i-address
   challengeTtl: 300000,                       // Challenge expiry in ms (default: 5 min)
+  redirectUrl: 'https://mysite.com/login',    // Mobile: auto-return user to browser after signing
 
   // Hook: called when a login is verified
   async onLogin({ iAddress, friendlyName, challengeId }) {
