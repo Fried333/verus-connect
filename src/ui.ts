@@ -100,7 +100,14 @@ export function showModal(options: ModalOptions): ModalHandle {
     deepLinkBtn = document.createElement('a');
     deepLinkBtn.className = 'vc-deeplink-btn';
     deepLinkBtn.textContent = 'Open in Verus Mobile';
-    if (deepLink) deepLinkBtn.href = deepLink;
+    if (deepLink) {
+      deepLinkBtn.href = deepLink;
+      // Use click handler for reliable deep link triggering on mobile browsers
+      deepLinkBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.location.href = deepLink;
+      });
+    }
     card.appendChild(deepLinkBtn);
   }
 
@@ -150,7 +157,17 @@ export function showModal(options: ModalOptions): ModalHandle {
       qrContainer.appendChild(wrap);
     },
     setDeepLink(uri: string) {
-      if (deepLinkBtn) deepLinkBtn.href = uri;
+      if (deepLinkBtn) {
+        deepLinkBtn.href = uri;
+        // Replace click handler with updated URI
+        const newBtn = deepLinkBtn.cloneNode(true) as HTMLAnchorElement;
+        newBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          window.location.href = uri;
+        });
+        deepLinkBtn.replaceWith(newBtn);
+        deepLinkBtn = newBtn;
+      }
     },
     destroy,
     onClose,

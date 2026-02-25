@@ -80,13 +80,14 @@ app.use('/auth/verus', verusAuth({
 app.listen(3000);
 ```
 
-This creates four routes:
+This creates five routes:
 
 | Route | Method | Purpose |
 |-------|--------|---------|
 | `/auth/verus/login` | POST | Create a new login challenge |
 | `/auth/verus/verusidlogin` | POST | Receives signed response from wallet |
 | `/auth/verus/result/:id` | GET | Frontend polls this for the result |
+| `/auth/verus/pay-deeplink` | POST | Generate a VerusPay invoice deep link |
 | `/auth/verus/health` | GET | Health check |
 
 ### Frontend Setup (5 lines)
@@ -143,7 +144,6 @@ verusAuth({
   apiUrl: 'https://api.verus.services',       // Verus API endpoint
   chainIAddress: 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV', // Chain i-address
   challengeTtl: 300000,                       // Challenge expiry in ms (default: 5 min)
-  redirectUrl: 'https://mysite.com/login',    // Mobile: auto-return user to browser after signing
 
   // Hook: called when a login is verified
   async onLogin({ iAddress, friendlyName, challengeId }) {
@@ -206,9 +206,36 @@ vc.on('modal:open', () => console.log('Modal opened'));
 vc.on('modal:close', () => console.log('Modal closed'));
 ```
 
-## Sending Transactions
+## Payments
 
-Sending VRSC requires the Verus Web Wallet browser extension:
+### VerusPay Invoice Deep Links (Server)
+
+Generate a deep link that opens Verus Mobile with a pre-filled payment request:
+
+```javascript
+// POST /auth/verus/pay-deeplink
+const res = await fetch('/auth/verus/pay-deeplink', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    address: 'RYourReceivingAddress...',  // R-address to receive payment
+    amount: 1.5,                          // Amount in VRSC
+    currency_id: 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV', // Optional, defaults to VRSC
+  }),
+});
+const { deep_link } = await res.json();
+// deep_link: "i5jtwbp6zymeay9llnraglgjqgdrffsau4://x-callback-url/..."
+```
+
+Use the deep link in an `<a>` tag or `window.location.href` to open Verus Mobile:
+
+```html
+<a href="${deep_link}">Pay with Verus Mobile</a>
+```
+
+### Sending via Web Wallet Extension (Frontend)
+
+Sending VRSC via the browser extension:
 
 ```javascript
 const result = await vc.send({
@@ -245,6 +272,27 @@ function LoginButton() {
 
   return <button onClick={handleLogin}>Login with VerusID</button>;
 }
+```
+
+## Webhook vs Redirect: Which Key to Use
+
+When building a custom VerusID login (without verus-connect), you need to include a `redirect_uri` in your login challenge. The VDXF key you use determines how the wallet sends back the signed response:
+
+| Key | Constant | How it works |
+|-----|----------|-------------|
+| **Webhook** | `LOGIN_CONSENT_WEBHOOK_VDXF_KEY` | Wallet POSTs the signed response directly to your server (server-to-server) |
+| **Redirect** | `LOGIN_CONSENT_REDIRECT_VDXF_KEY` | Wallet redirects the user's browser to your callback URL |
+
+**Use the Webhook key.** It works with both Verus Mobile and the Verus Web Wallet extension. The Redirect key only works with Verus Mobile — the web wallet extension will reject the challenge with "No webhook URI found."
+
+verus-connect uses the Webhook key automatically, so if you're using this library you don't need to worry about it. This only matters if you're constructing login challenges manually:
+
+```javascript
+// Correct — works with all wallets
+new RedirectUri(callbackUrl, LOGIN_CONSENT_WEBHOOK_VDXF_KEY.vdxfid)
+
+// Will NOT work with the web wallet extension
+new RedirectUri(callbackUrl, LOGIN_CONSENT_REDIRECT_VDXF_KEY.vdxfid)
 ```
 
 ## Advanced: Custom Backend
@@ -328,6 +376,7 @@ CALLBACK_URL=https://mysite.com/auth/verus/verusidlogin
 | `/login` | POST | Create a new signed login challenge |
 | `/verusidlogin` | POST | Receives signed response from wallet |
 | `/result/:id` | GET | Poll for challenge result |
+| `/pay-deeplink` | POST | Generate a VerusPay invoice deep link |
 | `/health` | GET | Health check |
 
 ## License

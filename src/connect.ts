@@ -14,6 +14,7 @@ import type {
 } from './types';
 import { detectEnvironment, isExtensionAvailable, waitForProvider } from './detect';
 import { extensionLogin, extensionSend } from './extension';
+import { openDeepLink } from './deeplink';
 import { generateQrSvg } from './qr';
 import { poll } from './poller';
 import { showModal } from './ui';
@@ -190,6 +191,12 @@ export class VerusConnect {
     });
     this.activeModal = modal;
     this.emit('modal:open');
+
+    // On mobile, automatically try to open the deep link so the app launches
+    // without requiring a second tap on the button
+    if (env === 'mobile') {
+      try { openDeepLink(uri); } catch { /* user can still tap the button */ }
+    }
 
     // If user closes modal, abort polling
     modal.onClose.then(() => {
