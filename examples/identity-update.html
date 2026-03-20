@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Identity Update Request — verus-connect v3</title>
+</head>
+<body>
+  <h1>Identity Update Request</h1>
+  <p>Request a user to update their VerusID content multimap.</p>
+  <p><em>Requires Verus Mobile with GenericRequest support (coming soon).</em></p>
+
+  <div>
+    <label>Identity: <input id="identity" value="veruscx@" /></label><br>
+    <label>VDXF Key: <input id="key" value="iGTUp2Tnd2eYAih717dyFHzbokhy6DgrH2" /></label><br>
+    <label>Value: <input id="value" value='{"message":"Hello from my app"}' /></label><br>
+    <button onclick="generate()">Generate Request</button>
+  </div>
+
+  <canvas id="qr"></canvas>
+  <pre id="result"></pre>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+  <script>
+    async function generate() {
+      const identity = document.getElementById('identity').value;
+      const key = document.getElementById('key').value;
+      const value = document.getElementById('value').value;
+
+      let parsed;
+      try { parsed = JSON.parse(value); } catch { parsed = value; }
+
+      const res = await fetch('/auth/verus/identity-update-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identity,
+          updates: { contentMultiMap: { [key]: parsed } }
+        })
+      });
+      const data = await res.json();
+      document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+
+      if (data.deep_link) {
+        await QRCode.toCanvas(document.getElementById('qr'), data.deep_link, { width: 250 });
+      }
+    }
+  </script>
+</body>
+</html>

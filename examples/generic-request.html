@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generic Request — verus-connect v3</title>
+</head>
+<body>
+  <h1>Generic Request</h1>
+  <p>Create an arbitrary GenericRequest deep link for the Verus wallet.</p>
+  <p><em>Requires Verus Mobile with GenericRequest support (coming soon).</em></p>
+
+  <div>
+    <label>Details (JSON array):</label><br>
+    <textarea id="details" rows="4" cols="60">[{"vdxfkey":"iGTUp2Tnd2eYAih717dyFHzbokhy6DgrH2","data":"test"}]</textarea><br>
+    <button onclick="generate()">Generate Request</button>
+  </div>
+
+  <canvas id="qr"></canvas>
+  <pre id="result"></pre>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+  <script>
+    async function generate() {
+      const details = JSON.parse(document.getElementById('details').value);
+
+      const res = await fetch('/auth/verus/generic-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ details })
+      });
+      const data = await res.json();
+      document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+
+      if (data.deep_link) {
+        await QRCode.toCanvas(document.getElementById('qr'), data.deep_link, { width: 250 });
+      }
+    }
+  </script>
+</body>
+</html>
