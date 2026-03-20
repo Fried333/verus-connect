@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verus Connect — Send Payment Example</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container { max-width: 420px; width: 100%; padding: 24px; }
+    h1 { font-size: 24px; margin-bottom: 8px; text-align: center; }
+    .subtitle { color: #888; font-size: 14px; text-align: center; margin-bottom: 32px; }
+    label { display: block; font-size: 12px; color: #888; margin-bottom: 4px; }
+    input {
+      display: block;
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 14px;
+      font-family: monospace;
+    }
+    input:focus { outline: none; border-color: #3165D4; }
+    button {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #send-btn { background: #22c55e; color: #fff; }
+    #result {
+      margin-top: 20px;
+      padding: 16px;
+      background: #1a1a2e;
+      border-radius: 12px;
+      font-size: 14px;
+      display: none;
+    }
+    #result.show { display: block; }
+    .label-sm { color: #888; font-size: 12px; margin-bottom: 4px; }
+    .value { font-family: monospace; word-break: break-all; margin-bottom: 12px; }
+    .success { color: #4ade80; }
+    .error { color: #f87171; }
+    .note {
+      margin-top: 24px;
+      padding: 12px;
+      background: #1a1a2e;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #888;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Send VRSC</h1>
+    <p class="subtitle">Requires Verus Web Wallet extension</p>
+
+    <label for="to">Recipient Address</label>
+    <input id="to" type="text" placeholder="R... or i..." value="">
+
+    <label for="amount">Amount (VRSC)</label>
+    <input id="amount" type="number" step="0.01" min="0" placeholder="1.00" value="0.01">
+
+    <button id="send-btn">Send Payment</button>
+
+    <div id="result">
+      <div class="label-sm">Status</div>
+      <div class="value" id="r-status"></div>
+      <div class="label-sm">Transaction ID</div>
+      <div class="value" id="r-txid"></div>
+    </div>
+
+    <div class="note">
+      <strong>Note:</strong> Send requires the Verus Web Wallet extension.
+      The extension opens an approval popup where the user confirms the transaction.
+    </div>
+  </div>
+
+  <script type="module">
+    import { VerusConnect } from '../dist/index.js';
+
+    // getChallenge / getResult are required by the constructor but not used for send().
+    // Provide stubs.
+    const vc = new VerusConnect({
+      appName: 'Send Demo',
+      async getChallenge() { throw new Error('Not used for send'); },
+      async getResult() { return { status: 'pending' }; },
+    });
+
+    const btn = document.getElementById('send-btn');
+    const resultEl = document.getElementById('result');
+
+    btn.addEventListener('click', async () => {
+      const to = document.getElementById('to').value.trim();
+      const amount = parseFloat(document.getElementById('amount').value);
+
+      if (!to) { alert('Enter a recipient address'); return; }
+      if (!amount || amount <= 0) { alert('Enter a valid amount'); return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Sending\u2026';
+
+      try {
+        const result = await vc.send({ to, amount });
+
+        document.getElementById('r-status').textContent = 'Sent!';
+        document.getElementById('r-status').className = 'value success';
+        document.getElementById('r-txid').textContent = result.txid;
+        resultEl.className = 'show';
+      } catch (err) {
+        document.getElementById('r-status').textContent = err.message;
+        document.getElementById('r-status').className = 'value error';
+        document.getElementById('r-txid').textContent = '';
+        resultEl.className = 'show';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Send Payment';
+      }
+    });
+  </script>
+</body>
+</html>
