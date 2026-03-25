@@ -80,10 +80,20 @@ if (command !== 'start') {
 
 const envPath = getFlag('env') || path.join(process.cwd(), '.env');
 try {
-  const dotenv = require('dotenv');
-  dotenv.config({ path: envPath });
+  const fs = require('fs');
+  const envContent = fs.readFileSync(envPath, 'utf-8');
+  for (const line of envContent.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    let val = trimmed.slice(eqIdx + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+    if (!process.env[key]) process.env[key] = val;
+  }
 } catch {
-  // dotenv not available — rely on shell environment
+  // .env file not found — rely on shell environment
 }
 
 // ── Read config ─────────────────────────────────────────────────────
@@ -130,16 +140,21 @@ if (CALLBACK_URL && !CALLBACK_URL.startsWith('https://')) {
 // ── Create server ───────────────────────────────────────────────────
 
 const express = require('express');
-const cors = require('cors');
 
 const app = express();
 
-// CORS
-if (CORS_ORIGINS === '*') {
-  app.use(cors());
-} else {
-  app.use(cors({ origin: CORS_ORIGINS.split(',').map((s: string) => s.trim()) }));
-}
+// CORS — inline handler, no external dependency
+const allowedOrigins = CORS_ORIGINS === '*' ? null : CORS_ORIGINS.split(',').map((s: string) => s.trim());
+app.use((req: any, res: any, next: any) => {
+  const origin = req.headers.origin;
+  if (!allowedOrigins || (origin && allowedOrigins.includes(origin))) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+  }
+  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 app.use(express.json({ limit: '1mb' }));
 

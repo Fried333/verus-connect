@@ -491,6 +491,8 @@ export function verusAuth(config: VerusAuthConfig) {
     }
 
     try {
+      const BN = smartRequire('verusid-ts-client/node_modules/bn.js');
+
       // Use server-configured callback URL only (never user input)
       const responseURIs: any[] = [];
       if (config.callbackUrl) {
@@ -499,9 +501,64 @@ export function verusAuth(config: VerusAuthConfig) {
         responseURIs.push(ResponseURI.fromUriString(idUpdateCallbackUrl, ResponseURI.TYPE_POST));
       }
 
-      // Build the identity update detail
-      const updateDetail = new primitives.IdentityUpdateRequestDetailsOrdinalVDXFObject({
-        identity: updates,
+      // Build the identity in verusd CLI JSON format
+      // The updates object should match the verus CLI identity JSON structure:
+      // { name, primaryaddresses, contentmultimap, flags, ... }
+      const identityJson: any = {};
+      if (typeof identity === 'string') {
+        // Resolve identity name to get current state for the name/parent fields
+        if (identity.includes('@')) {
+          identityJson.name = identity.replace(/@$/, '').split('.')[0];
+        } else {
+          identityJson.name = identity;
+        }
+      }
+
+      // Merge updates into the identity JSON
+      // Convert user-friendly values to hex strings for ContentMultiMap
+      if (updates.contentMultiMap || updates.contentmultimap) {
+        const rawMap = updates.contentMultiMap || updates.contentmultimap;
+        const processedMap: any = {};
+        for (const key in rawMap) {
+          const val = rawMap[key];
+          if (typeof val === 'string' && /^[0-9a-fA-F]+$/.test(val)) {
+            // Already hex
+            processedMap[key] = val;
+          } else if (typeof val === 'string') {
+            // Plain string → hex encode
+            processedMap[key] = Buffer.from(val, 'utf-8').toString('hex');
+          } else if (Array.isArray(val)) {
+            // Array — convert each item
+            processedMap[key] = val.map((item: any) => {
+              if (typeof item === 'string' && /^[0-9a-fA-F]+$/.test(item)) return item;
+              if (typeof item === 'string') return Buffer.from(item, 'utf-8').toString('hex');
+              return Buffer.from(JSON.stringify(item), 'utf-8').toString('hex');
+            });
+          } else if (typeof val === 'object') {
+            // Object → JSON → hex encode
+            processedMap[key] = Buffer.from(JSON.stringify(val), 'utf-8').toString('hex');
+          } else {
+            processedMap[key] = String(val);
+          }
+        }
+        identityJson.contentmultimap = processedMap;
+      }
+      if (updates.primaryaddresses || updates.primaryAddresses) {
+        identityJson.primaryaddresses = updates.primaryaddresses || updates.primaryAddresses;
+      }
+      if (updates.flags !== undefined) {
+        identityJson.flags = updates.flags;
+      }
+      if (updates.minimumsignatures !== undefined) {
+        identityJson.minimumsignatures = updates.minimumsignatures;
+      }
+
+      // Build the update request details using fromCLIJson
+      const updateDetails = primitives.IdentityUpdateRequestDetails.fromCLIJson(identityJson);
+
+      // Wrap in ordinal VDXF object
+      const updateDetail = new primitives.IdentityUpdateRequestOrdinalVDXFObject({
+        data: updateDetails,
       });
 
       const requestConfig: any = {
@@ -520,10 +577,10 @@ export function verusAuth(config: VerusAuthConfig) {
         deep_link: deepLink,
         qr_string: request.toQrString(),
         identity,
-        has_callback: !!callbackUrl,
+        has_callback: !!config.callbackUrl,
       });
     } catch (err: any) {
-      console.error('[verus-connect] identity-update-request error:', err.message);
+      console.error('[verus-connect] identity-update-request error:', err.message, err.stack);
       return res.status(500).json({ error: 'Failed to create identity update request' });
     }
   });
