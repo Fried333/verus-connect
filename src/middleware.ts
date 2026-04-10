@@ -47,37 +47,23 @@ let primitivesLoaded = false;
 
 function loadPrimitives(): boolean {
   if (primitivesLoaded) return !!primitives;
+  primitivesLoaded = true;
   try {
     primitives = smartRequire('verus-typescript-primitives');
-    primitivesLoaded = true;
     try { bs58check = smartRequire('bs58check'); } catch {
       try { bs58check = smartRequire('verus-typescript-primitives/node_modules/bs58check'); } catch {
-        try { bs58check = smartRequire('verusid-ts-client/node_modules/bs58check'); } catch {
-          console.warn('[verus-connect] bs58check not found — pay-deeplink address resolution limited');
-        }
+        console.warn('[verus-connect] bs58check not found — pay-deeplink address resolution limited');
       }
     }
     try { BN = smartRequire('bn.js'); } catch {
       try { BN = smartRequire('verus-typescript-primitives/node_modules/bn.js'); } catch {
-        try { BN = smartRequire('verusid-ts-client/node_modules/bn.js'); } catch {
-          console.warn('[verus-connect] bn.js not found — pay-deeplink may not work');
-        }
+        console.warn('[verus-connect] bn.js not found — pay-deeplink may not work');
       }
     }
     return true;
   } catch {
-    try {
-      const client = smartRequire('verusid-ts-client');
-      primitives = client.primitives;
-      bs58check = smartRequire('verusid-ts-client/node_modules/bs58check');
-      BN = smartRequire('verusid-ts-client/node_modules/bn.js');
-      primitivesLoaded = true;
-      return true;
-    } catch {
-      console.warn('[verus-connect] Primitives not found — pay-deeplink, generic-request, identity-update-request unavailable');
-      primitivesLoaded = true;
-      return false;
-    }
+    console.warn('[verus-connect] verus-typescript-primitives not found — pay-deeplink, generic-request, identity-update-request unavailable');
+    return false;
   }
 }
 
@@ -498,7 +484,7 @@ export function verusAuth(config: VerusConnectConfig): Router {
         for (const key in rawMap) {
           // [M9 fix] Validate VDXF key format (should be an i-address)
           if (!/^i[a-zA-Z0-9]{33,34}$/.test(key)) {
-            return res.status(400).json({ error: `Invalid VDXF key: ${key.slice(0, 20)}` });
+            return res.status(400).json({ error: 'Invalid VDXF key format' });
           }
           const val = rawMap[key];
           if (typeof val === 'string' && /^[0-9a-fA-F]+$/.test(val)) {
