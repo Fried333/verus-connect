@@ -15,6 +15,12 @@ export interface VerusConnectConfig {
   /** Chain i-address (default: VRSC) */
   chainIAddress?: string;
 
+  /** Chain name (default: VRSC) */
+  chain?: string;
+
+  /** Public API URL for RPC calls (default: https://api.verus.services) */
+  apiUrl?: string;
+
   // --- Daemon mode ---
   /** RPC URL for local daemon (e.g. http://user:pass@127.0.0.1:27486) */
   rpcUrl?: string;
@@ -25,6 +31,15 @@ export interface VerusConnectConfig {
 
   /** Public Verus node URL for verification (lite mode, required) */
   verifyNodeUrl?: string;
+
+  /** Hook called after successful login */
+  onLogin?: (login: VerifiedLogin) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void;
+}
+
+export interface VerifiedLogin {
+  iAddress: string;
+  friendlyName: string;
+  challengeId: string;
 }
 
 export interface Signer {

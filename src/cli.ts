@@ -75,6 +75,8 @@ app.use('/', verusAuth({
   iAddress: SIGNING_IADDRESS,
   callbackUrl: CALLBACK_URL,
   chainIAddress: process.env.CHAIN_IADDRESS,
+  chain: process.env.CHAIN,
+  apiUrl: process.env.API_URL || process.env.RPC_URL,
   rpcUrl: process.env.RPC_URL,
   privateKey: process.env.PRIVATE_KEY,
   verifyNodeUrl: process.env.VERIFY_NODE_URL,
@@ -86,4 +88,12 @@ app.listen(PORT, HOST, () => {
   console.log(`  Mode: ${mode}`);
   console.log(`  Signing ID: ${SIGNING_IADDRESS}`);
   console.log(`  Callback: ${CALLBACK_URL}`);
+  console.log(`  Endpoints:`);
+  console.log(`    POST /login              Create login challenge`);
+  console.log(`    POST /verusidlogin       Wallet callback (auto)`);
+  console.log(`    GET  /result/:id         Poll challenge status`);
+  console.log(`    POST /pay-deeplink       Generate payment deep link`);
+  console.log(`    POST /generic-request    Create generic request`);
+  console.log(`    POST /identity-update-request  Create identity update request`);
+  console.log(`    GET  /health             Health check`);
 });
