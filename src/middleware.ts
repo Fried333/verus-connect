@@ -13,7 +13,7 @@ import { LiteSigner } from './signer-lite.js';
 import { createChallenge, verifyResponse } from './auth.js';
 import type { VerusConnectConfig, Signer, VerifiedLogin } from './types.js';
 
-// Smart module resolution for peer dependencies (verusid-ts-client)
+// Smart module resolution for peer dependencies
 function createSmartRequire() {
   const strategies: ReturnType<typeof createRequire>[] = [];
   try {
@@ -48,11 +48,8 @@ let primitivesLoaded = false;
 function loadPrimitives(): boolean {
   if (primitivesLoaded) return !!primitives;
   try {
-    // Try loading directly from verus-typescript-primitives (preferred, no heavy client dependency)
     primitives = smartRequire('verus-typescript-primitives');
     primitivesLoaded = true;
-
-    // bs58check and BN — try to find them in available packages
     try { bs58check = smartRequire('bs58check'); } catch {
       try { bs58check = smartRequire('verus-typescript-primitives/node_modules/bs58check'); } catch {
         try { bs58check = smartRequire('verusid-ts-client/node_modules/bs58check'); } catch {
@@ -67,10 +64,8 @@ function loadPrimitives(): boolean {
         }
       }
     }
-
     return true;
   } catch {
-    // Fallback: try loading through verusid-ts-client
     try {
       const client = smartRequire('verusid-ts-client');
       primitives = client.primitives;
@@ -78,9 +73,8 @@ function loadPrimitives(): boolean {
       BN = smartRequire('verusid-ts-client/node_modules/bn.js');
       primitivesLoaded = true;
       return true;
-    } catch (err: any) {
-      console.warn('[verus-connect] Neither verus-typescript-primitives nor verusid-ts-client found');
-      console.warn('[verus-connect] pay-deeplink, generic-request, identity-update-request will be unavailable');
+    } catch {
+      console.warn('[verus-connect] Primitives not found — pay-deeplink, generic-request, identity-update-request unavailable');
       primitivesLoaded = true;
       return false;
     }
@@ -91,9 +85,96 @@ function loadPrimitives(): boolean {
 function randomIAddress(): string {
   if (!bs58check) return crypto.randomBytes(16).toString('hex');
   const buf = Buffer.alloc(21);
-  buf[0] = 102; // 'i' prefix
+  buf[0] = 102;
   crypto.randomBytes(20).copy(buf, 1);
   return bs58check.encode(buf);
+}
+
+// ── Rate limiter (shared across all routes) ──────────────────────
+const MAX_REQUESTS_PER_MIN = 30;
+const rateLimits = new Map<string, { count: number; reset: number }>();
+
+// [H3 fix] Clean up expired rate limit entries every 2 minutes
+const rateLimitCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of rateLimits) {
+    if (data.reset <= now) rateLimits.delete(ip);
+  }
+}, 120_000);
+if (rateLimitCleanup.unref) rateLimitCleanup.unref();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const limit = rateLimits.get(ip);
+  if (limit && limit.reset > now && limit.count >= MAX_REQUESTS_PER_MIN) {
+    return true;
+  }
+  if (!limit || limit.reset <= now) {
+    rateLimits.set(ip, { count: 1, reset: now + 60_000 });
+  } else {
+    limit.count++;
+  }
+  return false;
+}
+
+/** [M3 fix] Sanitise error messages — strip internal details */
+function safeErrorMessage(err: any, fallback: string): string {
+  // Never reflect raw error messages that might contain internal paths, URLs, or stack traces
+  if (!err || !err.message) return fallback;
+  const msg = String(err.message);
+  // Allow short, simple error messages through. Block anything that looks like a path, URL, or stack.
+  if (msg.length > 200 || msg.includes('/') || msg.includes('\\') || msg.includes('at ') || msg.includes('node_modules')) {
+    return fallback;
+  }
+  return msg;
+}
+
+// ── Input validators ─────────────────────────────────────────────
+
+/** [M9 fix] Validate address format */
+function isValidAddress(addr: unknown): addr is string {
+  if (typeof addr !== 'string') return false;
+  if (addr.length < 1 || addr.length > 100) return false;
+  // Only allow alphanumeric, @, . (for VerusID names) and base58 chars
+  if (!/^[a-zA-Z0-9@._]+$/.test(addr)) return false;
+  return true;
+}
+
+/** [M9 fix] Validate identity name */
+function isValidIdentity(id: unknown): id is string {
+  if (typeof id !== 'string') return false;
+  if (id.length < 1 || id.length > 100) return false;
+  if (!/^[a-zA-Z0-9@._]+$/.test(id)) return false;
+  return true;
+}
+
+/** [M9 fix] Validate flags (must be integer 0-15) */
+function isValidFlags(flags: unknown): flags is number {
+  if (typeof flags !== 'number') return false;
+  if (!Number.isInteger(flags) || flags < 0 || flags > 15) return false;
+  return true;
+}
+
+/** [M9 fix] Validate minimumsignatures (must be integer 1-13) */
+function isValidMinSigs(sigs: unknown): sigs is number {
+  if (typeof sigs !== 'number') return false;
+  if (!Number.isInteger(sigs) || sigs < 1 || sigs > 13) return false;
+  return true;
+}
+
+/** [M9 fix] Validate primaryaddresses (array of strings) */
+function isValidAddressArray(arr: unknown): arr is string[] {
+  if (!Array.isArray(arr)) return false;
+  if (arr.length === 0 || arr.length > 13) return false;
+  return arr.every(a => typeof a === 'string' && /^R[a-zA-Z0-9]{33}$/.test(a));
+}
+
+/** [M8 fix] Validate generic request details — limit array size and object depth */
+function isValidDetailsArray(details: unknown): details is any[] {
+  if (!Array.isArray(details)) return false;
+  if (details.length === 0 || details.length > 20) return false;
+  // Basic sanity check — each detail should be an object
+  return details.every(d => d !== null && typeof d === 'object' && !Array.isArray(d));
 }
 
 export function verusAuth(config: VerusConnectConfig): Router {
@@ -118,7 +199,6 @@ export function verusAuth(config: VerusConnectConfig): Router {
   const chainIAddress = config.chainIAddress || 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
   const apiUrl = config.apiUrl || config.rpcUrl || 'https://api.verus.services';
 
-  // Try to load primitives (non-fatal if missing — auth still works)
   const hasPrimitives = loadPrimitives();
   if (hasPrimitives) {
     console.log('[verus-connect] Primitives loaded — all routes available');
@@ -128,7 +208,6 @@ export function verusAuth(config: VerusConnectConfig): Router {
   const challenges = new Map<string, { created: number; deepLink: string }>();
   const results = new Map<string, { iAddress: string; friendlyName: string; extra?: Record<string, unknown> }>();
 
-  // Cleanup expired challenges and results every 60s
   const cleanupTimer = setInterval(() => {
     const cutoff = Date.now() - 5 * 60 * 1000;
     for (const [id, data] of challenges) {
@@ -140,24 +219,15 @@ export function verusAuth(config: VerusConnectConfig): Router {
   }, 60_000);
   if (cleanupTimer.unref) cleanupTimer.unref();
 
-  // Rate limiting: max 10 challenges per IP per minute
-  const rateLimits = new Map<string, { count: number; reset: number }>();
-
   const router = Router();
 
   // ── POST /login — create a new login challenge ──
 
   router.post('/login', async (_req: any, res) => {
+    // [H2 fix] Rate limit all POST routes
     const ip = _req.ip || _req.connection?.remoteAddress || 'unknown';
-    const now = Date.now();
-    const limit = rateLimits.get(ip);
-    if (limit && limit.reset > now && limit.count >= 10) {
+    if (isRateLimited(ip)) {
       return res.status(429).json({ error: 'Too many requests' });
-    }
-    if (!limit || limit.reset <= now) {
-      rateLimits.set(ip, { count: 1, reset: now + 60_000 });
-    } else {
-      limit.count++;
     }
 
     try {
@@ -173,6 +243,12 @@ export function verusAuth(config: VerusConnectConfig): Router {
   // ── POST /verusidlogin — receive signed response from wallet ──
 
   router.post('/verusidlogin', jsonParser({ limit: '1mb' }), async (req, res) => {
+    // [H2 fix] Rate limit
+    const ip = (req as any).ip || (req as any).connection?.remoteAddress || 'unknown';
+    if (isRateLimited(ip)) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
     try {
       const body = req.body;
       const challengeId = body?.decision?.request?.challenge?.challenge_id
@@ -231,29 +307,30 @@ export function verusAuth(config: VerusConnectConfig): Router {
   });
 
   // ── POST /pay-deeplink — generate VerusPay invoice deep link ──
-  // Body: { address: string, amount: number, currency_id?: string }
 
-  router.post('/pay-deeplink', jsonParser({ limit: '100kb' }), async (req: any, res) => {
+  router.post('/pay-deeplink', jsonParser({ limit: '10kb' }), async (req: any, res) => {
+    // [H2 fix] Rate limit
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    if (isRateLimited(ip)) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
     const { address, amount, currency_id } = req.body;
 
-    if (!address || amount === undefined || amount === null) {
-      return res.status(400).json({ error: 'address and amount are required' });
+    if (!isValidAddress(address)) {
+      return res.status(400).json({ error: 'Invalid address format' });
     }
-    if (typeof amount !== 'number' || !isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ error: 'amount must be a positive number' });
+    if (typeof amount !== 'number' || !isFinite(amount) || amount <= 0 || amount > 1e12) {
+      return res.status(400).json({ error: 'Amount must be a positive number (max 1 trillion)' });
     }
-    if (amount > 1e12) {
-      return res.status(400).json({ error: 'amount exceeds maximum' });
+    if (currency_id !== undefined && !isValidAddress(currency_id)) {
+      return res.status(400).json({ error: 'Invalid currency_id format' });
     }
-    if (typeof address !== 'string' || address.length < 1 || address.length > 100) {
-      return res.status(400).json({ error: 'invalid address format' });
-    }
-    if (!primitives || !bs58check) {
-      return res.status(503).json({ error: 'Verus libraries not loaded. Install verusid-ts-client.' });
+    if (!primitives || !bs58check || !BN) {
+      return res.status(503).json({ error: 'Service unavailable' });
     }
 
     try {
-      if (!BN) return res.status(503).json({ error: 'BN library not loaded' });
       const chainId = currency_id || chainIAddress;
       const VERSION_3 = new BN(3);
 
@@ -262,7 +339,6 @@ export function verusAuth(config: VerusConnectConfig): Router {
       let resolvedAddress = address;
 
       if (address.includes('@')) {
-        // Resolve VerusID name to i-address
         try {
           let rpcTarget = apiUrl;
           const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -284,7 +360,8 @@ export function verusAuth(config: VerusConnectConfig): Router {
           if (!iAddress) throw new Error('Identity not found');
           resolvedAddress = iAddress;
         } catch (e: any) {
-          return res.status(404).json({ error: `Could not resolve identity: ${e.message}` });
+          // [M3 fix] Don't reflect raw error
+          return res.status(404).json({ error: 'Could not resolve identity' });
         }
         const decoded = bs58check.decode(resolvedAddress);
         destType = primitives.DEST_ID;
@@ -318,20 +395,28 @@ export function verusAuth(config: VerusConnectConfig): Router {
       });
     } catch (err: any) {
       console.error('[verus-connect] pay-deeplink error:', err.message);
+      // [M3 fix] Generic error to client
       return res.status(500).json({ error: 'Failed to generate payment deep link' });
     }
   });
 
   // ── POST /generic-request — create a GenericRequest deep link ──
-  // Body: { details: Array<{vdxfkey, data}> }
 
-  router.post('/generic-request', jsonParser({ limit: '1mb' }), async (req: any, res) => {
+  router.post('/generic-request', jsonParser({ limit: '100kb' }), async (req: any, res) => {
+    // [H2 fix] Rate limit
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    if (isRateLimited(ip)) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
     const { details } = req.body;
-    if (!details || !Array.isArray(details) || details.length === 0) {
-      return res.status(400).json({ error: 'details array is required' });
+
+    // [M8 fix] Validate details array
+    if (!isValidDetailsArray(details)) {
+      return res.status(400).json({ error: 'details must be an array of 1-20 objects' });
     }
     if (!primitives) {
-      return res.status(503).json({ error: 'Verus libraries not loaded. Install verusid-ts-client.' });
+      return res.status(503).json({ error: 'Service unavailable' });
     }
 
     try {
@@ -343,7 +428,7 @@ export function verusAuth(config: VerusConnectConfig): Router {
       }
 
       const requestConfig: any = {
-        details: details.map((d: any) => d),
+        details,
         flags: primitives.GenericRequest.BASE_FLAGS,
       };
 
@@ -367,15 +452,25 @@ export function verusAuth(config: VerusConnectConfig): Router {
   });
 
   // ── POST /identity-update-request — create an identity update deep link ──
-  // Body: { identity: string, updates: { contentmultimap?, primaryaddresses?, flags?, minimumsignatures? } }
 
-  router.post('/identity-update-request', jsonParser({ limit: '1mb' }), async (req: any, res) => {
+  router.post('/identity-update-request', jsonParser({ limit: '100kb' }), async (req: any, res) => {
+    // [H2 fix] Rate limit
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    if (isRateLimited(ip)) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+
     const { identity, updates } = req.body;
-    if (!identity || !updates) {
-      return res.status(400).json({ error: 'identity and updates are required' });
+
+    // [M9 fix] Validate inputs
+    if (!isValidIdentity(identity)) {
+      return res.status(400).json({ error: 'Invalid identity format' });
+    }
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+      return res.status(400).json({ error: 'updates must be an object' });
     }
     if (!primitives) {
-      return res.status(503).json({ error: 'Verus libraries not loaded. Install verusid-ts-client.' });
+      return res.status(503).json({ error: 'Service unavailable' });
     }
 
     try {
@@ -387,19 +482,24 @@ export function verusAuth(config: VerusConnectConfig): Router {
       }
 
       const identityJson: any = {};
-      if (typeof identity === 'string') {
-        if (identity.includes('@')) {
-          identityJson.name = identity.replace(/@$/, '').split('.')[0];
-        } else {
-          identityJson.name = identity;
-        }
+      if (identity.includes('@')) {
+        identityJson.name = identity.replace(/@$/, '').split('.')[0];
+      } else {
+        identityJson.name = identity;
       }
 
-      // Process contentmultimap — convert strings to hex
+      // Process contentmultimap
       if (updates.contentMultiMap || updates.contentmultimap) {
         const rawMap = updates.contentMultiMap || updates.contentmultimap;
+        if (typeof rawMap !== 'object' || Array.isArray(rawMap)) {
+          return res.status(400).json({ error: 'contentmultimap must be an object' });
+        }
         const processedMap: any = {};
         for (const key in rawMap) {
+          // [M9 fix] Validate VDXF key format (should be an i-address)
+          if (!/^i[a-zA-Z0-9]{33,34}$/.test(key)) {
+            return res.status(400).json({ error: `Invalid VDXF key: ${key.slice(0, 20)}` });
+          }
           const val = rawMap[key];
           if (typeof val === 'string' && /^[0-9a-fA-F]+$/.test(val)) {
             processedMap[key] = val;
@@ -411,7 +511,7 @@ export function verusAuth(config: VerusConnectConfig): Router {
               if (typeof item === 'string') return Buffer.from(item, 'utf-8').toString('hex');
               return Buffer.from(JSON.stringify(item), 'utf-8').toString('hex');
             });
-          } else if (typeof val === 'object') {
+          } else if (typeof val === 'object' && val !== null) {
             processedMap[key] = Buffer.from(JSON.stringify(val), 'utf-8').toString('hex');
           } else {
             processedMap[key] = String(val);
@@ -420,13 +520,24 @@ export function verusAuth(config: VerusConnectConfig): Router {
         identityJson.contentmultimap = processedMap;
       }
 
+      // [M9 fix] Validate typed fields
       if (updates.primaryaddresses || updates.primaryAddresses) {
-        identityJson.primaryaddresses = updates.primaryaddresses || updates.primaryAddresses;
+        const addrs = updates.primaryaddresses || updates.primaryAddresses;
+        if (!isValidAddressArray(addrs)) {
+          return res.status(400).json({ error: 'primaryaddresses must be an array of valid R-addresses' });
+        }
+        identityJson.primaryaddresses = addrs;
       }
       if (updates.flags !== undefined) {
+        if (!isValidFlags(updates.flags)) {
+          return res.status(400).json({ error: 'flags must be an integer 0-15' });
+        }
         identityJson.flags = updates.flags;
       }
       if (updates.minimumsignatures !== undefined) {
+        if (!isValidMinSigs(updates.minimumsignatures)) {
+          return res.status(400).json({ error: 'minimumsignatures must be an integer 1-13' });
+        }
         identityJson.minimumsignatures = updates.minimumsignatures;
       }
 
@@ -454,25 +565,20 @@ export function verusAuth(config: VerusConnectConfig): Router {
         has_callback: !!config.callbackUrl,
       });
     } catch (err: any) {
-      console.error('[verus-connect] identity-update-request error:', err.message, err.stack);
+      // [M4 fix] Don't log stack traces
+      console.error('[verus-connect] identity-update-request error:', err.message);
       return res.status(500).json({ error: 'Failed to create identity update request' });
     }
   });
 
   // ── GET /health — health check ──
+  // [L4 fix] Minimal info — don't reveal internal state details
 
   router.get('/health', (_req, res) => {
     res.json({
       status: 'ok',
       mode,
-      activeChallenges: challenges.size,
       primitivesLoaded: !!primitives,
-      routes: {
-        login: true,
-        payDeeplink: !!primitives,
-        genericRequest: !!primitives,
-        identityUpdateRequest: !!primitives,
-      },
     });
   });
 

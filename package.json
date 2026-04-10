@@ -33,7 +33,7 @@
   "license": "MIT",
   "dependencies": {
     "express": "4.22.1",
-    "verus-typescript-primitives": "github:VerusCoin/verus-typescript-primitives"
+    "verus-typescript-primitives": "github:VerusCoin/verus-typescript-primitives#27e6c076def4416c20a568e31e4c406b10612807"
   },
   "devDependencies": {
     "tsup": "8.4.0",
