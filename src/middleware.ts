@@ -302,9 +302,6 @@ export function verusAuth(config: VerusConnectConfig): Router {
     }
 
     const { address, amount, currency_id } = req.body;
-    // Coerce to safe types — reject anything unexpected
-    const accepts_conversion = req.body.accepts_conversion === true;
-    const max_slippage = typeof req.body.max_slippage === 'number' ? req.body.max_slippage : 0;
 
     if (!isValidAddress(address)) {
       return res.status(400).json({ error: 'Invalid address format' });
@@ -314,9 +311,6 @@ export function verusAuth(config: VerusConnectConfig): Router {
     }
     if (currency_id !== undefined && !isValidAddress(currency_id)) {
       return res.status(400).json({ error: 'Invalid currency_id format' });
-    }
-    if (accepts_conversion && (max_slippage <= 0 || max_slippage > 0.05 || !isFinite(max_slippage))) {
-      return res.status(400).json({ error: 'max_slippage must be between 0 and 0.05 (5%)' });
     }
     if (!primitives || !bs58check || !BN) {
       return res.status(503).json({ error: 'Service unavailable' });
@@ -368,27 +362,14 @@ export function verusAuth(config: VerusConnectConfig): Router {
         destBytes = decoded.slice(1);
       }
 
-      const detailsOpts: any = {
+      const details = new primitives.VerusPayInvoiceDetails({
         amount: new BN(Math.round(amount * 1e8)),
         destination: new primitives.TransferDestination({
           type: destType,
           destinationBytes: destBytes,
         }),
         requestedcurrencyid: chainId,
-      };
-
-      // Conversion support: set max slippage so the wallet knows conversion is OK
-      if (accepts_conversion && typeof max_slippage === 'number' && max_slippage > 0) {
-        // maxestimatedslippage is in satoshis (1e8 = 100%). 0.5% = 0.005 * 1e8 = 500000
-        detailsOpts.maxestimatedslippage = new BN(Math.round(max_slippage * 1e8));
-      }
-
-      const details = new primitives.VerusPayInvoiceDetails(detailsOpts, VERSION_3);
-
-      // Set the acceptsConversion flag so the wallet offers conversion options
-      if (accepts_conversion) {
-        details.setFlags({ acceptsConversion: true });
-      }
+      }, VERSION_3);
 
       const invoice = new primitives.VerusPayInvoice({ details, version: VERSION_3 });
       const deepLink = invoice.toWalletDeeplinkUri();
@@ -397,7 +378,6 @@ export function verusAuth(config: VerusConnectConfig): Router {
         deep_link: deepLink,
         destination_type: destType.eq(primitives.DEST_ID) ? 'identity' : 'address',
         resolved_address: resolvedAddress,
-        accepts_conversion: !!accepts_conversion,
       });
     } catch (err: any) {
       console.error('[verus-connect] pay-deeplink error:', err.message);
@@ -433,14 +413,8 @@ export function verusAuth(config: VerusConnectConfig): Router {
         responseURIs.push(ResponseURI.fromUriString(genericCallbackUrl, ResponseURI.TYPE_POST));
       }
 
-      // Convert raw JSON details to proper OrdinalVDXFObject instances
-      const parsedDetails = details.map((d: any) => {
-        if (d && typeof d.getByteLength === 'function') return d; // already an object
-        return primitives.GeneralTypeOrdinalVDXFObject.fromJson(d);
-      });
-
       const requestConfig: any = {
-        details: parsedDetails,
+        details,
         flags: primitives.GenericRequest.BASE_FLAGS,
       };
 
