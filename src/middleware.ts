@@ -301,7 +301,10 @@ export function verusAuth(config: VerusConnectConfig): Router {
       return res.status(429).json({ error: 'Too many requests' });
     }
 
-    const { address, amount, currency_id, accepts_conversion, max_slippage } = req.body;
+    const { address, amount, currency_id } = req.body;
+    // Coerce to safe types — reject anything unexpected
+    const accepts_conversion = req.body.accepts_conversion === true;
+    const max_slippage = typeof req.body.max_slippage === 'number' ? req.body.max_slippage : 0;
 
     if (!isValidAddress(address)) {
       return res.status(400).json({ error: 'Invalid address format' });
@@ -311,6 +314,9 @@ export function verusAuth(config: VerusConnectConfig): Router {
     }
     if (currency_id !== undefined && !isValidAddress(currency_id)) {
       return res.status(400).json({ error: 'Invalid currency_id format' });
+    }
+    if (accepts_conversion && (max_slippage <= 0 || max_slippage > 0.05 || !isFinite(max_slippage))) {
+      return res.status(400).json({ error: 'max_slippage must be between 0 and 0.05 (5%)' });
     }
     if (!primitives || !bs58check || !BN) {
       return res.status(503).json({ error: 'Service unavailable' });
