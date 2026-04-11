@@ -301,7 +301,7 @@ export function verusAuth(config: VerusConnectConfig): Router {
       return res.status(429).json({ error: 'Too many requests' });
     }
 
-    const { address, amount, currency_id } = req.body;
+    const { address, amount, currency_id, accepts_conversion, max_slippage } = req.body;
 
     if (!isValidAddress(address)) {
       return res.status(400).json({ error: 'Invalid address format' });
@@ -362,14 +362,27 @@ export function verusAuth(config: VerusConnectConfig): Router {
         destBytes = decoded.slice(1);
       }
 
-      const details = new primitives.VerusPayInvoiceDetails({
+      const detailsOpts: any = {
         amount: new BN(Math.round(amount * 1e8)),
         destination: new primitives.TransferDestination({
           type: destType,
           destinationBytes: destBytes,
         }),
         requestedcurrencyid: chainId,
-      }, VERSION_3);
+      };
+
+      // Conversion support: set max slippage so the wallet knows conversion is OK
+      if (accepts_conversion && typeof max_slippage === 'number' && max_slippage > 0) {
+        // maxestimatedslippage is in satoshis (1e8 = 100%). 0.5% = 0.005 * 1e8 = 500000
+        detailsOpts.maxestimatedslippage = new BN(Math.round(max_slippage * 1e8));
+      }
+
+      const details = new primitives.VerusPayInvoiceDetails(detailsOpts, VERSION_3);
+
+      // Set the acceptsConversion flag so the wallet offers conversion options
+      if (accepts_conversion) {
+        details.setFlags({ acceptsConversion: true });
+      }
 
       const invoice = new primitives.VerusPayInvoice({ details, version: VERSION_3 });
       const deepLink = invoice.toWalletDeeplinkUri();
@@ -378,6 +391,7 @@ export function verusAuth(config: VerusConnectConfig): Router {
         deep_link: deepLink,
         destination_type: destType.eq(primitives.DEST_ID) ? 'identity' : 'address',
         resolved_address: resolvedAddress,
+        accepts_conversion: !!accepts_conversion,
       });
     } catch (err: any) {
       console.error('[verus-connect] pay-deeplink error:', err.message);
