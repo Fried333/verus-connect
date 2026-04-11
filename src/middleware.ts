@@ -433,8 +433,14 @@ export function verusAuth(config: VerusConnectConfig): Router {
         responseURIs.push(ResponseURI.fromUriString(genericCallbackUrl, ResponseURI.TYPE_POST));
       }
 
+      // Convert raw JSON details to proper OrdinalVDXFObject instances
+      const parsedDetails = details.map((d: any) => {
+        if (d && typeof d.getByteLength === 'function') return d; // already an object
+        return primitives.GeneralTypeOrdinalVDXFObject.fromJson(d);
+      });
+
       const requestConfig: any = {
-        details,
+        details: parsedDetails,
         flags: primitives.GenericRequest.BASE_FLAGS,
       };
 
