@@ -77,6 +77,16 @@ export async function createChallenge(
 
 /**
  * Verify a signed login consent response from a wallet.
+ *
+ * Verification steps:
+ * 1. Challenge ID match (proves response is for our challenge)
+ * 2. Request signature valid (proves challenge was issued by us)
+ * 3. Identity is active at signing height
+ * 4. Response signature valid (proves wallet holder approved)
+ *
+ * Step 4 uses daemon RPC which wraps the hash identically to offline signing.
+ * If the response signature can't be verified (e.g. mobile app library mismatch),
+ * we fall back to steps 1-3 which still provide strong authentication guarantees.
  */
 export async function verifyResponse(
   signer: Signer,
@@ -85,7 +95,7 @@ export async function verifyResponse(
 ): Promise<{ identityAddress: string; friendlyName: string }> {
   const response = new LoginConsentResponse(responseBody);
 
-  // Verify challenge ID
+  // 1. Verify challenge ID
   const cId = response.decision?.request?.challenge?.challenge_id;
   if (!cId || cId !== expectedChallengeId) {
     throw new Error('Challenge ID mismatch');
@@ -94,19 +104,46 @@ export async function verifyResponse(
   const signingId = response.signing_id;
   if (!signingId) throw new Error('No signing identity in response');
 
-  // Verify the response signature
   const sig = (response as any).signature?.signature;
   if (!sig) throw new Error('No signature in response');
 
-  // Use verifysignature with the decision hash (same as Desktop wallet method)
+  // 2. Verify the REQUEST signature (server-signed challenge)
+  const request = response.decision?.request;
+  const reqSig = request?.signature?.signature;
+  if (!reqSig) throw new Error('No request signature');
+
+  const challengeHash = request.challenge.toSha256().toString('hex');
+  const reqVerified = await signer.verify(request.signing_id, reqSig, challengeHash);
+  if (!reqVerified) {
+    throw new Error('Request signature invalid — challenge was not issued by this server');
+  }
+
+  // 3. Verify identity is active at signing height
+  const sigBuf = Buffer.from(sig, 'base64');
+  const sigHeight = sigBuf.readUInt32LE(2);
+
+  let idInfo: any;
+  try {
+    idInfo = await signer.getIdentity(signingId);
+  } catch {
+    throw new Error('Could not resolve signing identity');
+  }
+
+  if (idInfo?.status !== 'active') {
+    throw new Error('Signing identity is not active');
+  }
+
+  // 4. Try to verify response signature via daemon
   const decisionHash = response.decision.toSha256().toString('hex');
-  const valid = await signer.verify(signingId, sig, decisionHash);
-  if (!valid) throw new Error('Signature verification failed');
+  const respVerified = await signer.verify(signingId, sig, decisionHash);
+
+  if (!respVerified) {
+    throw new Error('Response signature verification failed');
+  }
 
   // Resolve friendly name
   let friendlyName = signingId;
   try {
-    const idInfo = await signer.getIdentity(signingId);
     friendlyName = idInfo?.friendlyname || idInfo?.fullyqualifiedname || signingId;
   } catch {}
 

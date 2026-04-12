@@ -5,7 +5,7 @@
 import type { Signer } from './types.js';
 
 export class DaemonSigner implements Signer {
-  private rpcUrl: string;
+  public rpcUrl: string;
 
   constructor(rpcUrl: string) {
     this.rpcUrl = rpcUrl;
