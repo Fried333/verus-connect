@@ -32,6 +32,9 @@ export interface VerusConnectConfig {
   /** Public Verus node URL for verification (lite mode, required) */
   verifyNodeUrl?: string;
 
+  /** Enable debug logging and response saving to /tmp */
+  debug?: boolean;
+
   /** Hook called after successful login */
   onLogin?: (login: VerifiedLogin) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void;
 }

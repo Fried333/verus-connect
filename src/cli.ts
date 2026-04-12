@@ -80,6 +80,7 @@ app.use('/', verusAuth({
   rpcUrl: process.env.RPC_URL,
   privateKey: process.env.PRIVATE_KEY,
   verifyNodeUrl: process.env.VERIFY_NODE_URL,
+  debug: process.env.DEBUG === 'true' || process.env.DEBUG === '1',
 }));
 
 app.listen(PORT, HOST, () => {

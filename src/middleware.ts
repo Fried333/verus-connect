@@ -195,6 +195,8 @@ export function verusAuth(config: VerusConnectConfig): Router {
   const chainIAddress = config.chainIAddress || 'i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV';
   const apiUrl = config.apiUrl || config.rpcUrl || 'https://api.verus.services';
 
+  const debug = config.debug ?? false;
+
   const hasPrimitives = loadPrimitives();
   if (hasPrimitives) {
     console.log('[verus-connect] Primitives loaded — all routes available');
@@ -248,23 +250,24 @@ export function verusAuth(config: VerusConnectConfig): Router {
     try {
       const body = req.body;
 
-      // Debug: Log received payload
-      console.log('[verus-connect] /verusidlogin received');
-      console.log('[verus-connect] Body keys:', Object.keys(body || {}));
-
-      // Debug: Save payload for offline analysis
-      try {
-        const fs = require('fs');
-        const filename = `/tmp/verus-response-${Date.now()}.json`;
-        fs.writeFileSync(filename, JSON.stringify(body, null, 2));
-        console.log('[verus-connect] Saved response to:', filename);
-      } catch { /* ignore write errors */ }
+      if (debug) {
+        console.log('[verus-connect] /verusidlogin received');
+        console.log('[verus-connect] Body keys:', Object.keys(body || {}));
+        try {
+          const fs = require('fs');
+          const filename = `/tmp/verus-response-${Date.now()}.json`;
+          fs.writeFileSync(filename, JSON.stringify(body, null, 2));
+          console.log('[verus-connect] Saved response to:', filename);
+        } catch { /* ignore write errors */ }
+      }
 
       const challengeId = body?.decision?.request?.challenge?.challenge_id
         || body?.decision?.decision_id;
 
-      console.log('[verus-connect] Extracted challengeId:', challengeId);
-      console.log('[verus-connect] Challenge exists:', challenges.has(challengeId));
+      if (debug) {
+        console.log('[verus-connect] Extracted challengeId:', challengeId);
+        console.log('[verus-connect] Challenge exists:', challenges.has(challengeId));
+      }
 
       if (!challengeId || !challenges.has(challengeId)) {
         return res.status(404).json({ error: 'Challenge not found or expired' });
@@ -289,11 +292,11 @@ export function verusAuth(config: VerusConnectConfig): Router {
       }
 
       results.set(challengeId, { iAddress: identityAddress, friendlyName, extra });
-      console.log('[verus-connect] Login successful:', identityAddress);
+      if (debug) console.log('[verus-connect] Login successful:', identityAddress);
       res.json({ status: 'ok' });
     } catch (err: any) {
       console.error('[verus-connect] Webhook error:', err.message);
-      console.error('[verus-connect] Stack:', err.stack);
+      if (debug) console.error('[verus-connect] Stack:', err.stack);
       res.status(500).json({ error: 'Verification error' });
     }
   });
