@@ -9,7 +9,9 @@ import crypto from 'crypto';
 import { createRequire } from 'module';
 import path from 'path';
 import { DaemonSigner } from './signer-daemon.js';
-import { LiteSigner } from './signer-lite.js';
+// LiteSigner is lazy-loaded only when lite mode is requested (PRIVATE_KEY set).
+// This avoids importing verusid-ts-client in native/daemon mode where it's not needed.
+let LiteSigner: any = null;
 import { createChallenge, verifyResponse } from './auth.js';
 import type { VerusConnectConfig, Signer, VerifiedLogin } from './types.js';
 
@@ -178,6 +180,14 @@ export function verusAuth(config: VerusConnectConfig): Router {
   } else {
     if (!config.privateKey) throw new Error('verus-connect: privateKey is required for lite mode');
     if (!config.verifyNodeUrl) throw new Error('verus-connect: verifyNodeUrl is required for lite mode');
+    // Lazy-load LiteSigner — only imports verusid-ts-client when actually needed
+    if (!LiteSigner) {
+      try {
+        LiteSigner = require('./signer-lite.js').LiteSigner;
+      } catch (e: any) {
+        throw new Error('verus-connect: lite mode requires verusid-ts-client. Install it: npm run install:lite');
+      }
+    }
     signer = new LiteSigner(config.privateKey, config.verifyNodeUrl);
     console.log('[verus-connect] Mode: lite');
   }
@@ -413,8 +423,14 @@ export function verusAuth(config: VerusConnectConfig): Router {
         responseURIs.push(ResponseURI.fromUriString(genericCallbackUrl, ResponseURI.TYPE_POST));
       }
 
+      // Convert raw JSON details to proper OrdinalVDXFObject instances
+      const parsedDetails = details.map((d: any) => {
+        if (d && typeof d.getByteLength === 'function') return d;
+        return primitives.GeneralTypeOrdinalVDXFObject.fromJson(d);
+      });
+
       const requestConfig: any = {
-        details,
+        details: parsedDetails,
         flags: primitives.GenericRequest.BASE_FLAGS,
       };
 
