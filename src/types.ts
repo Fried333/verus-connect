@@ -63,6 +63,9 @@ export interface Signer {
 
   /** Get identity info */
   getIdentity(nameOrId: string): Promise<any>;
+
+  /** Check if daemon is synced to chain tip */
+  checkSynced?(): Promise<{ synced: boolean; blocks: number; longestchain: number }>;
 }
 
 export interface Challenge {

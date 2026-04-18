@@ -229,6 +229,19 @@ export function verusAuth(config: VerusConnectConfig): Router {
     }
 
     try {
+      // Check daemon is synced before generating challenge — stale challenges produce
+      // invalid signatures because the signing height won't match the chain tip
+      if (signer.checkSynced) {
+        const sync = await signer.checkSynced();
+        if (!sync.synced) {
+          console.warn(`[verus-connect] Daemon not synced (${sync.blocks}/${sync.longestchain}) — refusing to generate challenge`);
+          return res.status(503).json({
+            error: 'Daemon is not synced to chain tip. Please wait and try again.',
+            blocks: sync.blocks,
+            longestchain: sync.longestchain,
+          });
+        }
+      }
       const challenge = await createChallenge(signer, config.iAddress, config.callbackUrl, chainIAddress);
       challenges.set(challenge.id, { created: Date.now(), deepLink: challenge.deepLink });
       res.json({ challengeId: challenge.id, uri: challenge.deepLink, deepLink: challenge.deepLink });
@@ -444,10 +457,15 @@ export function verusAuth(config: VerusConnectConfig): Router {
         responseURIs.push(ResponseURI.fromUriString(genericCallbackUrl, ResponseURI.TYPE_POST));
       }
 
-      // Convert raw JSON details to proper OrdinalVDXFObject instances
+      // Convert raw JSON details to proper OrdinalVDXFObject instances.
+      // GeneralTypeOrdinalVDXFObject.fromJson expects data as hex string.
       const parsedDetails = details.map((d: any) => {
         if (d && typeof d.getByteLength === 'function') return d;
-        return primitives.GeneralTypeOrdinalVDXFObject.fromJson(d);
+        const detail = { ...d };
+        if (detail.data && typeof detail.data === 'string' && !/^[0-9a-fA-F]*$/.test(detail.data)) {
+          detail.data = Buffer.from(detail.data, 'utf-8').toString('hex');
+        }
+        return primitives.GeneralTypeOrdinalVDXFObject.fromJson(detail);
       });
 
       const requestConfig: any = {

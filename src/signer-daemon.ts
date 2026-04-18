@@ -60,4 +60,11 @@ export class DaemonSigner implements Signer {
   async getIdentity(nameOrId: string): Promise<any> {
     return this.rpc('getidentity', [nameOrId]);
   }
+
+  async checkSynced(): Promise<{ synced: boolean; blocks: number; longestchain: number }> {
+    const info = await this.rpc('getinfo');
+    const blocks = info.blocks || 0;
+    const longestchain = info.longestchain || 0;
+    return { synced: blocks >= longestchain && longestchain > 0, blocks, longestchain };
+  }
 }
