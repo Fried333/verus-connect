@@ -65,9 +65,10 @@ export class DaemonSigner implements Signer {
     const info = await this.rpc('getinfo');
     const blocks = info.blocks || 0;
     const longestchain = info.longestchain || 0;
-    // Allow up to 5 blocks behind — new blocks arrive every ~60s,
-    // a small gap is normal and doesn't affect challenge validity
-    const MAX_BEHIND = 5;
+    // verusid-ts-client uses a 3600s (1 hour) time threshold for signature validity.
+    // The daemon rejects only future blocks (>1 ahead). So we need to be within ~1 hour
+    // of the tip. At ~60s/block, that's ~60 blocks. Use 50 as a safe margin.
+    const MAX_BEHIND = 50;
     return { synced: (longestchain - blocks) <= MAX_BEHIND && longestchain > 0, blocks, longestchain };
   }
 }
