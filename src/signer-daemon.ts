@@ -65,6 +65,9 @@ export class DaemonSigner implements Signer {
     const info = await this.rpc('getinfo');
     const blocks = info.blocks || 0;
     const longestchain = info.longestchain || 0;
-    return { synced: blocks >= longestchain && longestchain > 0, blocks, longestchain };
+    // Allow up to 5 blocks behind — new blocks arrive every ~60s,
+    // a small gap is normal and doesn't affect challenge validity
+    const MAX_BEHIND = 5;
+    return { synced: (longestchain - blocks) <= MAX_BEHIND && longestchain > 0, blocks, longestchain };
   }
 }
